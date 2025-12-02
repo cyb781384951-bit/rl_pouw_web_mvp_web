@@ -1,7 +1,4 @@
 streamlit
+numpy
 gymnasium
 stable-baselines3
-pandas
-numpy
-matplotlib
-imageio
