@@ -132,7 +132,7 @@ class SmartLogisticsNavEnv(gym.Env):
         return None 
         
 # ---------------------------------
-# 3. POUW 区块链逻辑 (已修复语法错误)
+# 3. POUW 区块链逻辑
 # ---------------------------------
 class Block:
     def __init__(self, index, timestamp, data, previous_hash='0'):
@@ -176,7 +176,6 @@ class SimpleBlockchain:
         self.chain.append(new_block)
         return new_block.hash
 
-    # --- 修复点：完整的函数定义 ---
     def is_chain_valid(self):
         for i in range(1, len(self.chain)):
             current_block = self.chain[i]
@@ -229,6 +228,7 @@ def run_test_and_render(model, mode, grid_size=20):
     return test_result, "navigation_skipped.gif"
 
 def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
+    """将 RL 训练结果作为 POUW 数据记录到区块链"""
     pouw_data = {
         "user_params": user_params,
         "training_summary": {
@@ -237,8 +237,10 @@ def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
             "final_reward": training_logs[-1]['avg_reward'] if training_logs else 0
         },
         "test_result": test_result,
-        "model_architecture": str(model.policy.net)
+        # --- 修复点：使用 str(model.policy) 获取网络架构 ---
+        "model_architecture": str(model.policy)
     }
+    
     latest_block = st.session_state.rl_pouw_chain.get_latest_block()
     new_index = latest_block.index + 1
     new_block = Block(new_index, str(datetime.now()), pouw_data, latest_block.hash)
@@ -256,7 +258,7 @@ def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
 # 5. Streamlit Web App Interface
 # ---------------------------------
 
-# 初始化状态 (必须在 set_page_config 之后)
+# 初始化状态 (在 set_page_config 之后)
 if 'rl_pouw_chain' not in st.session_state:
     st.session_state.rl_pouw_chain = SimpleBlockchain()
 
