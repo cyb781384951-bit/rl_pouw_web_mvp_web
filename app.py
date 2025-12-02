@@ -12,7 +12,7 @@ import hashlib
 # 确保只导入必需的库
 
 # ---------------------------------
-# Streamlit/Colab 兼容的打印函数 (替代 st.write)
+# Streamlit/Colab 兼容的打印函数
 # ---------------------------------
 def print_status(message):
     """Prints status messages, checking if running in Streamlit."""
@@ -131,64 +131,4 @@ class SmartLogisticsNavEnv(gym.Env):
         reward = self._calculate_reward(prev_dist)
         
         terminated = self.agent_pos == self.target_pos
-        truncated = self.current_step >= self.max_steps
-
-        observation = self._get_obs()
-        info = self._get_info()
-        
-        return observation, reward, terminated, truncated, info
-
-    def _get_info(self):
-        return {"distance": self._calculate_distance(), "agent_pos": self.agent_pos}
-
-    def render(self):
-        # 渲染被禁用
-        return None 
-        
-# ---------------------------------
-# 3. POUW 区块链逻辑 (Block & SimpleBlockchain)
-# ---------------------------------
-class Block:
-    def __init__(self, index, timestamp, data, previous_hash='0'):
-        self.index = index
-        self.timestamp = timestamp
-        self.data = data
-        self.previous_hash = previous_hash
-        self.nonce = 0
-        self.hash = self.calculate_hash()
-
-    def calculate_hash(self):
-        block_string = json.dumps(self.to_dict(), sort_keys=True).encode()
-        return hashlib.sha256(block_string).hexdigest()
-
-    def to_dict(self):
-        return {
-            "index": self.index,
-            "timestamp": self.timestamp,
-            "data": self.data,
-            "previous_hash": self.previous_hash,
-            "nonce": self.nonce
-        }
-
-class SimpleBlockchain:
-    def __init__(self):
-        self.chain = [self.create_genesis_block()]
-        self.difficulty = 4
-
-    def create_genesis_block(self):
-        return Block(0, str(datetime.now()), 
-                     {"message": "Genesis Block for RL POUW Chain"}, "0")
-
-    def get_latest_block(self):
-        return self.chain[-1]
-
-    def mine_block(self, new_block):
-        target = '0' * self.difficulty
-        while new_block.hash[:self.difficulty] != target:
-            new_block.nonce += 1
-            new_block.hash = new_block.calculate_hash()
-        
-        self.chain.append(new_block)
-        return new_block.hash
-
-    def is_
+        truncated = self.current_step >= self.max_
