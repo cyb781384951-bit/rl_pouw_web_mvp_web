@@ -1,5 +1,6 @@
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg') # 解决 Streamlit Cloud 的无界面渲染错误
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,6 +12,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 import json, imageio, os
 from datetime import datetime
 import hashlib
+import time # 用于 render 方法中的潜在优化
 
 # ---------------------------------
 # Streamlit/Colab 兼容的打印函数 (替代 st.write)
@@ -34,6 +36,7 @@ class LoggingCallback(BaseCallback):
         self.logs = []
 
     def _on_step(self) -> bool:
+        # 每 1000 步记录一次日志
         if self.n_calls % 1000 == 0:
             avg_reward = np.mean(self.locals['rewards']) if len(self.locals['rewards']) > 0 else 0
             self.logs.append({
@@ -43,6 +46,7 @@ class LoggingCallback(BaseCallback):
             if self.verbose > 0:
                 print(f"Step {self.num_timesteps}/{self.locals['total_timesteps']} | Avg Reward: {avg_reward:.2f}")
         return True
+
 # ---------------------------------
 # 2. RL 环境定义 (SmartLogisticsNavEnv)
 # ---------------------------------
@@ -183,14 +187,27 @@ class SmartLogisticsNavEnv(gym.Env):
         ax.set_yticklabels([])
         ax.tick_params(length=0) 
         
-        # 保存为 RGB 数组
+        # --- 图像生成修复点 ---
         fig.canvas.draw()
+        
+        # 尝试刷新事件，确保渲染完成（尤其在无界面环境中）
+        try:
+             fig.canvas.flush_events() 
+        except NotImplementedError:
+             pass
+        
+        # 获取 RGB 数据
+        width, height = fig.canvas.get_width_height()
         image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        
+        # 确保尺寸正确 (height x width x 3)
+        image = image.reshape(height, width, 3) 
         plt.close(fig) 
+        # --- 修复点结束 ---
         
         return image
-      # ---------------------------------
+
+# ---------------------------------
 # 3. POUW 区块链逻辑 (Block & SimpleBlockchain)
 # ---------------------------------
 class Block:
@@ -258,7 +275,8 @@ class SimpleBlockchain:
                 return False
                 
         return True
-      # ---------------------------------
+
+# ---------------------------------
 # 4. 核心训练和评估函数
 # ---------------------------------
 
@@ -353,7 +371,8 @@ def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
         "data": pouw_data,
         "is_chain_valid": chain_valid
     }
-  # ---------------------------------
+
+# ---------------------------------
 # 5. Streamlit Web App Interface
 # ---------------------------------
 
@@ -410,7 +429,8 @@ if st.button("🚀 开始训练 & 验证 POUW", use_container_width=True):
             model, training_logs = train_agent(selected_mode, timesteps, grid_size)
 
         # 运行评估
-        test_result, gif_path = run_test_and_render(model, selected_mode, grid_size)
+        # 错误发生在这里，但问题在 render 方法中
+        test_result, gif_path = run_test_and_render(model, selected_mode, grid_size) 
 
         # 记录 POUW
         user_params = {"mode": selected_mode, "total_timesteps": timesteps, "grid_size": grid_size}
