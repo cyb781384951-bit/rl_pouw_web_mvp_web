@@ -1,4 +1,2 @@
 streamlit
-numpy
-gymnasium
-stable-baselines3
+
