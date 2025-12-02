@@ -1,9 +1,10 @@
-import matplotlib
-matplotlib.use('Agg') # 解决 Streamlit Cloud 的无界面渲染错误
-
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
+# 移除 Matplotlib 导入和 use('Agg') 设置，因为我们不再使用它
+# import matplotlib.pyplot as plt 
+# import matplotlib
+# matplotlib.use('Agg')
+
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
@@ -12,7 +13,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 import json, imageio, os
 from datetime import datetime
 import hashlib
-import time # 用于 render 方法中的潜在优化
+import time
 
 # ---------------------------------
 # Streamlit/Colab 兼容的打印函数 (替代 st.write)
@@ -51,7 +52,8 @@ class LoggingCallback(BaseCallback):
 # 2. RL 环境定义 (SmartLogisticsNavEnv)
 # ---------------------------------
 class SmartLogisticsNavEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
+    # 移除 render_modes metadata
+    metadata = {"render_fps": 30} 
 
     def __init__(self, grid_size=20, mode='shortest', render_mode=None):
         super(SmartLogisticsNavEnv, self).__init__()
@@ -160,53 +162,11 @@ class SmartLogisticsNavEnv(gym.Env):
     def _get_info(self):
         return {"distance": self._calculate_distance(), "agent_pos": self.agent_pos}
 
-    # 渲染方法 (用于 GIF 生成)
+    # 渲染方法 (改为返回 None，以避免错误)
     def render(self):
-        grid = np.zeros((self.grid_size, self.grid_size, 3), dtype=np.uint8)
+        # 彻底移除 Matplotlib 绘图代码
+        return None 
         
-        # 障碍物 (红色)
-        for x, y in self.obstacles:
-            if 0 <= x < self.grid_size and 0 <= y < self.grid_size:
-                grid[y, x] = [255, 0, 0]
-        
-        # 目标 (绿色)
-        gx, gy = self.target_pos
-        grid[gy, gx] = [0, 255, 0]
-        
-        # Agent (蓝色)
-        ax, ay = self.agent_pos
-        if 0 <= ax < self.grid_size and 0 <= ay < self.grid_size:
-             grid[ay, ax] = [0, 0, 255]
-        
-        # 使用 matplotlib 绘制网格
-        fig, ax = plt.subplots(figsize=(self.grid_size/2, self.grid_size/2))
-        ax.imshow(grid, origin='lower')
-        ax.set_xticks(np.arange(self.grid_size))
-        ax.set_yticks(np.arange(self.grid_size))
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.tick_params(length=0) 
-        
-        # --- 图像生成修复点 ---
-        fig.canvas.draw()
-        
-        # 尝试刷新事件，确保渲染完成（尤其在无界面环境中）
-        try:
-             fig.canvas.flush_events() 
-        except NotImplementedError:
-             pass
-        
-        # 获取 RGB 数据
-        width, height = fig.canvas.get_width_height()
-        image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        
-        # 确保尺寸正确 (height x width x 3)
-        image = image.reshape(height, width, 3) 
-        plt.close(fig) 
-        # --- 修复点结束 ---
-        
-        return image
-
 # ---------------------------------
 # 3. POUW 区块链逻辑 (Block & SimpleBlockchain)
 # ---------------------------------
@@ -297,19 +257,19 @@ def train_agent(mode, timesteps, grid_size=20):
     # 训练
     model.learn(total_timesteps=timesteps, callback=logging_callback)
     
-    # 保存模型 (可选)
-    model.save(f"ppo_logistics_{mode}.zip")
+    # 移除模型保存
+    # model.save(f"ppo_logistics_{mode}.zip") 
     
     return model, logging_callback.logs
 
 def run_test_and_render(model, mode, grid_size=20):
-    """评估模型并生成导航 GIF"""
-    print_status("Running Final Evaluation...")
+    """评估模型，跳过 GIF 渲染以避免服务器错误"""
+    print_status("Running Final Evaluation (GIF rendering skipped)...")
     
     env = SmartLogisticsNavEnv(grid_size=grid_size, mode=mode)
     obs, _ = env.reset()
     
-    images = []
+    # 移除 images 列表
     total_reward = 0
     steps = 0
     done = False
@@ -321,149 +281,12 @@ def run_test_and_render(model, mode, grid_size=20):
         total_reward += reward
         steps += 1
         
-        # 记录图像帧
-        images.append(env.render())
+        # 移除 env.render() 调用
+        # env.render() 
         
     env.close()
     
-    # 保存 GIF
-    gif_path = f"navigation_{mode}.gif"
-    imageio.mimsave(gif_path, images, fps=10)
+    # 移除 GIF 保存
+    gif_path = "navigation_skipped.gif" # 返回一个虚拟路径
     
-    test_result = {
-        'steps': steps,
-        'total_reward': total_reward,
-        'reach_goal': env.agent_pos == env.target_pos
-    }
-    
-    return test_result, gif_path
-
-def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
-    """将 RL 训练结果作为 POUW 数据记录到区块链"""
-    # 组合 POUW 数据
-    pouw_data = {
-        "user_params": user_params,
-        "training_summary": {
-            "start_time": str(datetime.now()),
-            "total_timesteps": user_params['total_timesteps'],
-            "final_reward": training_logs[-1]['avg_reward'] if training_logs else 0
-        },
-        "test_result": test_result,
-        "model_architecture": str(model.policy.net)
-    }
-    
-    # 获取最新区块
-    latest_block = st.session_state.rl_pouw_chain.get_latest_block()
-    
-    # 创建新区块
-    new_index = latest_block.index + 1
-    new_block = Block(new_index, str(datetime.now()), pouw_data, latest_block.hash)
-    
-    # 挖矿并添加到链
-    mined_hash = st.session_state.rl_pouw_chain.mine_block(new_block)
-    
-    # 验证链的有效性
-    chain_valid = st.session_state.rl_pouw_chain.is_chain_valid()
-
-    return {
-        "block_index": new_block.index,
-        "block_hash": mined_hash,
-        "data": pouw_data,
-        "is_chain_valid": chain_valid
-    }
-
-# ---------------------------------
-# 5. Streamlit Web App Interface
-# ---------------------------------
-
-# 初始化 Streamlit 状态和区块链 (必须在所有 Streamlit 元素之前)
-if 'rl_pouw_chain' not in st.session_state:
-    st.session_state.rl_pouw_chain = SimpleBlockchain()
-
-st.set_page_config(layout="wide")
-st.title("🤖 RL-POUW 智能物流导航 MVP")
-st.markdown("---")
-
-# UI controls and inputs
-col1, col2, col3 = st.columns(3)
-with col1:
-    selected_mode = st.selectbox(
-        "选择导航模式:",
-        ('shortest', 'fastest', 'balanced'),
-        key='mode_select',
-        help="Shortest: 优先最短路径; Fastest: 优先最快交付 (高时间惩罚); Balanced: 平衡路径和时间。"
-    )
-with col2:
-    timesteps = st.number_input(
-        "训练步数 (Timesteps):",
-        min_value=10000,
-        max_value=500000,
-        value=150000,
-        step=10000,
-        key='timesteps_input',
-        help="强化学习 Agent 的训练时长。步数越高，学习效果可能越好。"
-    )
-with col3:
-    grid_size = st.number_input(
-        "网格大小 (Grid Size):",
-        min_value=10,
-        max_value=30,
-        value=20,
-        step=5,
-        key='grid_size_input',
-        help="物流环境的网格地图尺寸 (N x N)."
-    )
-
-
-if st.button("🚀 开始训练 & 验证 POUW", use_container_width=True):
-    # 确保在运行之前清理掉旧的 GIF，避免缓存问题
-    if os.path.exists(f"navigation_{selected_mode}.gif"):
-        os.remove(f"navigation_{selected_mode}.gif")
-        
-    st.markdown("### 训练日志")
-    log_container = st.empty()
-    
-    with st.spinner(f"正在训练 {selected_mode.upper()} 模式... 请等待..."):
-        # 训练 Agent
-        with st.empty():
-            model, training_logs = train_agent(selected_mode, timesteps, grid_size)
-
-        # 运行评估
-        # 错误发生在这里，但问题在 render 方法中
-        test_result, gif_path = run_test_and_render(model, selected_mode, grid_size) 
-
-        # 记录 POUW
-        user_params = {"mode": selected_mode, "total_timesteps": timesteps, "grid_size": grid_size}
-        pouw_record = save_pouw_to_blockchain(user_params, training_logs, test_result, model)
-    
-    # ---------------------------------
-    # 结果展示
-    # ---------------------------------
-    st.success(f"训练和验证完成！模式: {selected_mode.upper()}")
-    
-    st.markdown("---")
-    
-    col_res1, col_res2 = st.columns(2)
-    with col_res1:
-        st.subheader("✅ 导航结果")
-        st.metric("最终步数", test_result['steps'])
-        st.metric("总奖励", f"{test_result['total_reward']:.2f}")
-        st.metric("到达目标", "是" if test_result['reach_goal'] else "否")
-        
-        # 显示 GIF
-        if os.path.exists(gif_path):
-            st.image(gif_path, caption=f"物流 Agent 导航路径 ({selected_mode} 模式)")
-
-    with col_res2:
-        st.subheader("🔗 POUW 区块链记录")
-        st.metric("新区块索引", pouw_record['block_index'])
-        st.metric("链有效性", pouw_record['is_chain_valid'], 
-                  delta="链验证失败，可能挖矿难度过高或数据校验问题" if not pouw_record['is_chain_valid'] else "链验证成功",
-                  delta_color="inverse")
-        st.write("区块哈希:", pouw_record['block_hash'][:12] + "...")
-        with st.expander("查看完整的 POUW 数据"):
-            st.json(pouw_record['data'])
-            
-    st.markdown("---")
-    st.subheader("🌐 完整区块链状态")
-    st.json([block.to_dict() for block in st.session_state.rl_pouw_chain.chain])
+    test
