@@ -1,19 +1,16 @@
 import streamlit as st
 import numpy as np
-# 移除 Matplotlib 导入和 use('Agg') 设置，因为我们不再使用它
-# import matplotlib.pyplot as plt 
-# import matplotlib
-# matplotlib.use('Agg')
+# 移除了 Matplotlib, time, imageio, os 的导入
 
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
-import json, imageio, os
+import json
 from datetime import datetime
 import hashlib
-import time
+
 
 # ---------------------------------
 # Streamlit/Colab 兼容的打印函数 (替代 st.write)
@@ -52,7 +49,7 @@ class LoggingCallback(BaseCallback):
 # 2. RL 环境定义 (SmartLogisticsNavEnv)
 # ---------------------------------
 class SmartLogisticsNavEnv(gym.Env):
-    # 移除 render_modes metadata
+    # 移除了 render_modes metadata
     metadata = {"render_fps": 30} 
 
     def __init__(self, grid_size=20, mode='shortest', render_mode=None):
@@ -95,31 +92,26 @@ class SmartLogisticsNavEnv(gym.Env):
         
         # 2. 模式特定的奖励/惩罚
         if self.mode == 'shortest':
-            # 鼓励靠近目标
             reward += distance_change * 10
-            # 小惩罚时间步长，鼓励快速结束
             reward -= 0.1
         elif self.mode == 'fastest':
-            # 鼓励快速靠近 (更高的距离奖励)
             reward += distance_change * 20
-            # 较高惩罚时间步长
             reward -= 0.5
         elif self.mode == 'balanced':
-            # 均衡奖励 (距离和时间)
             reward += distance_change * 5
             reward -= 0.2
         
         # 3. 碰撞惩罚 (Punishment)
         if self.agent_pos in self.obstacles:
-            reward -= 1000  # 极高的碰撞惩罚
+            reward -= 1000
 
         # 4. 边界惩罚
         if not (0 <= self.agent_pos[0] < self.grid_size and 0 <= self.agent_pos[1] < self.grid_size):
-            reward -= 50  # 边界惩罚 (RL Agent 不应该越界)
+            reward -= 50
 
         # 5. 胜利奖励 (Goal)
         if self.agent_pos == self.target_pos:
-            reward += 10000  # 极高的胜利奖励
+            reward += 10000
             
         return reward
 
@@ -162,9 +154,8 @@ class SmartLogisticsNavEnv(gym.Env):
     def _get_info(self):
         return {"distance": self._calculate_distance(), "agent_pos": self.agent_pos}
 
-    # 渲染方法 (改为返回 None，以避免错误)
+    # 渲染方法 (返回 None，彻底避免错误)
     def render(self):
-        # 彻底移除 Matplotlib 绘图代码
         return None 
         
 # ---------------------------------
@@ -244,21 +235,14 @@ def train_agent(mode, timesteps, grid_size=20):
     """训练 PPO Agent 并返回模型和日志"""
     print_status(f"Training PPO Agent for {mode} mode with {timesteps} steps...")
     
-    # 创建环境
     env = SmartLogisticsNavEnv(grid_size=grid_size, mode=mode)
     vec_env = make_vec_env(lambda: env, n_envs=1)
     
-    # 创建日志回调
     logging_callback = LoggingCallback(verbose=1)
 
-    # 初始化 PPO 模型
     model = PPO("MlpPolicy", vec_env, verbose=0, device="auto", tensorboard_log=None)
     
-    # 训练
     model.learn(total_timesteps=timesteps, callback=logging_callback)
-    
-    # 移除模型保存
-    # model.save(f"ppo_logistics_{mode}.zip") 
     
     return model, logging_callback.logs
 
@@ -269,7 +253,6 @@ def run_test_and_render(model, mode, grid_size=20):
     env = SmartLogisticsNavEnv(grid_size=grid_size, mode=mode)
     obs, _ = env.reset()
     
-    # 移除 images 列表
     total_reward = 0
     steps = 0
     done = False
@@ -281,12 +264,41 @@ def run_test_and_render(model, mode, grid_size=20):
         total_reward += reward
         steps += 1
         
-        # 移除 env.render() 调用
-        # env.render() 
-        
     env.close()
     
-    # 移除 GIF 保存
     gif_path = "navigation_skipped.gif" # 返回一个虚拟路径
     
-    test
+    test_result = {
+        'steps': steps,
+        'total_reward': total_reward,
+        'reach_goal': env.agent_pos == env.target_pos
+    }
+    
+    return test_result, gif_path
+
+def save_pouw_to_blockchain(user_params, training_logs, test_result, model):
+    """将 RL 训练结果作为 POUW 数据记录到区块链"""
+    # 组合 POUW 数据
+    pouw_data = {
+        "user_params": user_params,
+        "training_summary": {
+            "start_time": str(datetime.now()),
+            "total_timesteps": user_params['total_timesteps'],
+            "final_reward": training_logs[-1]['avg_reward'] if training_logs else 0
+        },
+        "test_result": test_result,
+        "model_architecture": str(model.policy.net)
+    }
+    
+    # 获取最新区块
+    latest_block = st.session_state.rl_pouw_chain.get_latest_block()
+    
+    # 创建新区块
+    new_index = latest_block.index + 1
+    new_block = Block(new_index, str(datetime.now()), pouw_data, latest_block.hash)
+    
+    # 挖矿并添加到链
+    mined_hash = st.session_state.rl_pouw_chain.mine_block(new_block)
+    
+    # 验证链的有效性
+    chain_valid = st.session_state.rl_pouw_chain.is_chain_valid()
