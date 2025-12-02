@@ -1,33 +1,194 @@
 import streamlit as st
 import numpy as np
 
-# 移除所有其他复杂的导入 (gymnasium, stable_baselines3, json, datetime, hashlib, etc.)
-
-# 定义一个简单的函数来运行您的完整逻辑
-def run_main_app():
-    st.header("App Initialized Successfully!")
-    st.write("If you see this, the core Streamlit environment is working.")
-    st.write("---")
-    # 警告：由于我们删除了复杂逻辑的代码，这里的内容将无法运行
-    st.warning("完整的 RL/POUW 逻辑已被注释掉，请联系我以获取调试帮助。")
-
+import gymnasium as gym
+from gymnasium import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.callbacks import BaseCallback
+import json
+from datetime import datetime
+import hashlib
+# 确保只导入必需的库
 
 # ---------------------------------
-# 5. Streamlit Web App Interface
+# Streamlit/Colab 兼容的打印函数 (替代 st.write)
 # ---------------------------------
+def print_status(message):
+    """Prints status messages, checking if running in Streamlit."""
+    if 'streamlit' in st.__doc__:
+        st.info(message)
+    else:
+        print(message)
 
-st.set_page_config(layout="wide")
-st.title("🤖 RL-POUW 智能物流导航 MVP - DEBUG MODE")
-st.markdown("---")
+# ---------------------------------
+# 训练日志回调函数
+# ---------------------------------
+class LoggingCallback(BaseCallback):
+    """
+    Saves training metrics to a list for POUW inclusion.
+    """
+    def __init__(self, verbose=0):
+        super(LoggingCallback, self).__init__(verbose)
+        self.logs = []
 
-st.success("🎉 应用成功启动！请点击按钮运行核心功能。")
+    def _on_step(self) -> bool:
+        # 每 1000 步记录一次日志
+        if self.n_calls % 1000 == 0:
+            avg_reward = np.mean(self.locals['rewards']) if len(self.locals['rewards']) > 0 else 0
+            self.logs.append({
+                'timesteps': self.num_timesteps,
+                'avg_reward': float(f'{avg_reward:.2f}')
+            })
+            if self.verbose > 0:
+                print(f"Step {self.num_timesteps}/{self.locals['total_timesteps']} | Avg Reward: {avg_reward:.2f}")
+        return True
 
-if st.button("运行 RL & POUW 核心功能", use_container_width=True):
-    # 尝试运行核心应用逻辑 (在这里替换为您的完整代码逻辑)
-    # 由于这是调试模式，我们只显示一个消息
-    st.info("核心功能正在模拟运行...")
-    st.metric("状态", "OK")
-    st.write("如果应用仍然黑屏，请立即查看 Streamlit Cloud 日志！")
+# ---------------------------------
+# 2. RL 环境定义 (SmartLogisticsNavEnv)
+# ---------------------------------
+class SmartLogisticsNavEnv(gym.Env):
+    metadata = {"render_fps": 30} 
 
-# 立即运行，避免任何复杂代码在启动时执行
-# run_main_app()
+    def __init__(self, grid_size=20, mode='shortest', render_mode=None):
+        super(SmartLogisticsNavEnv, self).__init__()
+        self.grid_size = grid_size
+        self.mode = mode
+        
+        self.obstacles = [(i, i) for i in range(5, grid_size - 5)]
+        
+        self.action_space = spaces.Discrete(4)
+        
+        low = np.array([0, 0, 0, 0], dtype=np.int32)
+        high = np.array([grid_size - 1, grid_size - 1, grid_size - 1, grid_size - 1], dtype=np.int32)
+        self.observation_space = spaces.Box(low=low, high=high, shape=(4,), dtype=np.int32)
+        
+        self.target_pos = (grid_size - 1, grid_size - 1)
+        self.start_pos = (0, 0)
+        self.agent_pos = self.start_pos
+        self.current_step = 0
+        self.max_steps = grid_size * grid_size * 2
+        
+        self.render_mode = render_mode
+        self.window = None
+        self.clock = None
+
+    def _get_obs(self):
+        return np.array([self.agent_pos[0], self.agent_pos[1], 
+                         self.target_pos[0], self.target_pos[1]])
+
+    def _calculate_reward(self, prev_dist):
+        reward = 0
+        
+        current_dist = self._calculate_distance()
+        distance_change = prev_dist - current_dist
+        
+        if self.mode == 'shortest':
+            reward += distance_change * 10
+            reward -= 0.1
+        elif self.mode == 'fastest':
+            reward += distance_change * 20
+            reward -= 0.5
+        elif self.mode == 'balanced':
+            reward += distance_change * 5
+            reward -= 0.2
+        
+        if self.agent_pos in self.obstacles:
+            reward -= 1000
+
+        if not (0 <= self.agent_pos[0] < self.grid_size and 0 <= self.agent_pos[1] < self.grid_size):
+            reward -= 50
+
+        if self.agent_pos == self.target_pos:
+            reward += 10000
+            
+        return reward
+
+    def _calculate_distance(self):
+        return abs(self.agent_pos[0] - self.target_pos[0]) + abs(self.agent_pos[1] - self.target_pos[1])
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.agent_pos = self.start_pos
+        self.current_step = 0
+        
+        observation = self._get_obs()
+        info = self._get_info()
+        return observation, info
+
+    def step(self, action):
+        prev_dist = self._calculate_distance()
+        x, y = self.agent_pos
+        
+        if action == 0: y = min(y + 1, self.grid_size - 1)
+        elif action == 1: y = max(y - 1, 0)
+        elif action == 2: x = max(x - 1, 0)
+        elif action == 3: x = min(x + 1, self.grid_size - 1)
+        
+        self.agent_pos = (x, y)
+        self.current_step += 1
+        
+        reward = self._calculate_reward(prev_dist)
+        
+        terminated = self.agent_pos == self.target_pos
+        truncated = self.current_step >= self.max_steps
+
+        observation = self._get_obs()
+        info = self._get_info()
+        
+        return observation, reward, terminated, truncated, info
+
+    def _get_info(self):
+        return {"distance": self._calculate_distance(), "agent_pos": self.agent_pos}
+
+    def render(self):
+        # 渲染被禁用
+        return None 
+        
+# ---------------------------------
+# 3. POUW 区块链逻辑 (Block & SimpleBlockchain)
+# ---------------------------------
+class Block:
+    def __init__(self, index, timestamp, data, previous_hash='0'):
+        self.index = index
+        self.timestamp = timestamp
+        self.data = data
+        self.previous_hash = previous_hash
+        self.nonce = 0
+        self.hash = self.calculate_hash()
+
+    def calculate_hash(self):
+        block_string = json.dumps(self.to_dict(), sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
+
+    def to_dict(self):
+        return {
+            "index": self.index,
+            "timestamp": self.timestamp,
+            "data": self.data,
+            "previous_hash": self.previous_hash,
+            "nonce": self.nonce
+        }
+
+class SimpleBlockchain:
+    def __init__(self):
+        self.chain = [self.create_genesis_block()]
+        self.difficulty = 4
+
+    def create_genesis_block(self):
+        return Block(0, str(datetime.now()), 
+                     {"message": "Genesis Block for RL POUW Chain"}, "0")
+
+    def get_latest_block(self):
+        return self.chain[-1]
+
+    def mine_block(self, new_block):
+        target = '0' * self.difficulty
+        while new_block.hash[:self.difficulty] != target:
+            new_block.nonce += 1
+            new_block.hash = new_block.calculate_hash()
+        
+        self.chain.append(new_block)
+        return new_block.hash
+
+    def is_
